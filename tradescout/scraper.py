@@ -259,14 +259,38 @@ class GoogleMapsScraper:
             
             listing_element = listings[index]
             
-            # Click on the listing to get details
-            await listing_element.click()
-            await page.wait_for_timeout(1500)
+            # Get initial URL for comparison
+            initial_url = page.url
+            debug(f"Clicking listing {index}, initial URL: {initial_url}", print_msg=False)
             
-            # Extract basic info
-            name = await self._extract_text(page, '[data-attrid="title"]')
+            # Click on the listing to get details - improved navigation
+            try:
+                # Try different click approaches for better reliability
+                await listing_element.scroll_into_view_if_needed()
+                await listing_element.click(timeout=5000)
+                
+                # Wait for navigation to business detail page
+                # Check if URL changed indicating navigation to business page
+                for attempt in range(10):  # Up to 3 seconds
+                    await page.wait_for_timeout(300)
+                    current_url = page.url
+                    if current_url != initial_url and '/maps/place/' in current_url:
+                        debug(f"Navigation successful to: {current_url}", print_msg=False)
+                        break
+                else:
+                    debug(f"Navigation may not have completed, URL: {page.url}", print_msg=False)
+                
+                # Additional wait for business details to load
+                await page.wait_for_timeout(1000)
+                
+            except Exception as click_error:
+                debug(f"Error clicking listing: {click_error}", print_msg=False)
+                return None
+            
+            # Extract basic info with improved selectors
+            name = await self._extract_business_name(page)
             if not name:
-                name = await self._extract_text(page, 'h1')
+                debug("Could not extract business name with any selector", print_msg=False)
             
             # Extract rating and reviews
             rating_text = await self._extract_text(page, '[data-attrid="kc:/collection/knowledge_panels/local_reviewable:star_score"]')
@@ -290,6 +314,9 @@ class GoogleMapsScraper:
             # Get Maps profile URL
             maps_url = page.url
             
+            # Debug: Log what we found
+            debug(f"Extracted data - Name: {name}, Phone: {phone}, Address: {address}", print_msg=False)
+            
             if name and phone:  # Minimum required fields
                 business = Business(
                     place_name=clean_text(name),
@@ -306,11 +333,61 @@ class GoogleMapsScraper:
                     maps_profile_url=maps_url
                 )
                 
+                debug(f"Successfully created business: {business.place_name}", print_msg=False)
                 return business
+            else:
+                debug(f"Missing required fields - Name: {name}, Phone: {phone}", print_msg=False)
         
         except Exception as e:
             error(f"Error extracting business data: {e}", print_msg=False)
+            # Optional: Save screenshot for debugging on failures
+            try:
+                screenshot_path = f"/tmp/extraction_error_{int(time.time())}.png"
+                await page.screenshot(path=screenshot_path)
+                debug(f"Saved error screenshot: {screenshot_path}", print_msg=False)
+            except:
+                pass  # Don't fail the whole extraction if screenshot fails
         
+        return None
+    
+    async def _extract_business_name(self, page: Page) -> Optional[str]:
+        """Extract business name with improved selectors for current Google Maps."""
+        # Updated selectors based on current Google Maps interface (2024)
+        name_selectors = [
+            # Primary selectors for business name
+            'h1[data-attrid="title"]',  # Most common current selector
+            'h1',  # Fallback h1
+            '[data-attrid="title"]',  # Data attribute selector
+            
+            # Alternative selectors for different business page layouts
+            '.DUwDvf',  # Business name class
+            '.x3AX1-LfntMc-header-title-title',  # Header title
+            '.lMbq3e',  # Alternative name class
+            '.qrShPb',  # Another business name selector
+            '.fontHeadlineLarge',  # Typography-based selector
+            
+            # Fallback selectors
+            '[data-value]',  # Generic data-value selector
+            '.section-hero-header-title-title',  # Section header
+            '.section-hero-header h1'  # Hero section title
+        ]
+        
+        for selector in name_selectors:
+            try:
+                element = page.locator(selector).first
+                if await element.is_visible(timeout=1000):
+                    text = await element.inner_text()
+                    if text and text.strip() and len(text.strip()) > 1:
+                        # Filter out common non-business text
+                        text = text.strip()
+                        if text.lower() not in ['results', 'map', 'directions', 'save', 'share', 'more']:
+                            debug(f"Found business name '{text}' with selector: {selector}", print_msg=False)
+                            return text
+            except Exception as e:
+                debug(f"Name selector {selector} failed: {e}", print_msg=False)
+                continue
+        
+        debug("Could not extract business name with any selector", print_msg=False)
         return None
     
     async def _extract_text(self, page: Page, selector: str) -> Optional[str]:
@@ -324,12 +401,31 @@ class GoogleMapsScraper:
         return None
     
     async def _extract_phone(self, page: Page) -> Optional[str]:
-        """Extract phone number from the page."""
+        """Extract phone number from the page with improved selectors."""
+        # Updated phone selectors for current Google Maps interface
         phone_selectors = [
-            '[data-attrid*="phone"]',
-            '[data-value*="+"]',
-            'span[dir="ltr"]',
-            '.rogA2c'
+            # Primary phone selectors
+            '[data-attrid*="phone"]',  # Data attribute for phone
+            '[data-value*="+"]',  # Data value with phone number
+            '[data-attrid="kc:/collection/knowledge_panels/local_reviewable:phone"]',  # Specific phone attribute
+            
+            # Alternative phone selectors
+            'span[dir="ltr"]',  # LTR direction span (often used for phone numbers)
+            '.rogA2c',  # Phone number class
+            
+            # New selectors for 2024 Google Maps
+            'button[data-value*="tel:"]',  # Tel protocol button
+            'a[href*="tel:"]',  # Tel protocol link
+            '[aria-label*="phone" i]',  # Aria label with phone
+            '[aria-label*="call" i]',  # Aria label with call
+            
+            # Generic selectors that might contain phone numbers
+            '.fontBodyMedium span[dir="ltr"]',  # Body text with phone
+            '.Io6YTe',  # Contact information class
+            '.CL9Uqc span',  # Contact span
+            
+            # Fallback - look for any text that looks like a phone number
+            'span:not([class])',  # Generic spans
         ]
         
         for selector in phone_selectors:
@@ -338,10 +434,16 @@ class GoogleMapsScraper:
                 for element in elements:
                     text = await element.inner_text()
                     if text and re.search(r'[\d\+\(\)\-\s]{7,}', text):
-                        return text.strip()
-            except:
+                        # Additional validation for phone number format
+                        cleaned_phone = re.sub(r'[^\d\+\(\)\-\s]', '', text.strip())
+                        if len(re.sub(r'\D', '', cleaned_phone)) >= 7:  # At least 7 digits
+                            debug(f"Found phone '{text.strip()}' with selector: {selector}", print_msg=False)
+                            return text.strip()
+            except Exception as e:
+                debug(f"Phone selector {selector} failed: {e}", print_msg=False)
                 continue
         
+        debug("Could not extract phone number with any selector", print_msg=False)
         return None
     
     async def _extract_website(self, page: Page) -> Optional[str]:
@@ -365,18 +467,42 @@ class GoogleMapsScraper:
         return None
     
     async def _extract_address(self, page: Page) -> Optional[str]:
-        """Extract address from the page."""
+        """Extract address from the page with improved selectors."""
+        # Updated address selectors for current Google Maps interface
         address_selectors = [
-            '[data-attrid*="address"]',
-            '.LrzXr',
-            '.fccl3c'
+            # Primary address selectors
+            '[data-attrid*="address"]',  # Data attribute for address
+            '[data-attrid="kc:/collection/knowledge_panels/local_reviewable:address"]',  # Specific address attribute
+            
+            # Alternative address selectors
+            '.LrzXr',  # Address class
+            '.fccl3c',  # Alternative address class
+            
+            # New selectors for 2024 Google Maps
+            'button[data-value*="directions"]',  # Directions button often contains address
+            '.Io6YTe',  # Contact information section
+            '.rogA2c:not([data-attrid*="phone"])',  # Contact class excluding phone
+            
+            # Generic address pattern selectors
+            '[aria-label*="address" i]',  # Aria label with address
+            '.fontBodyMedium:has-text(",")',  # Text with comma (address format)
+            
+            # Fallback selectors
+            'div[data-value*=","]',  # Data value with comma
+            'span:has-text(",")',  # Span containing comma-separated text
         ]
         
         for selector in address_selectors:
-            address = await self._extract_text(page, selector)
-            if address:
-                return address
+            try:
+                address = await self._extract_text(page, selector)
+                if address and ',' in address and len(address) > 10:  # Basic address validation
+                    debug(f"Found address '{address}' with selector: {selector}", print_msg=False)
+                    return address
+            except Exception as e:
+                debug(f"Address selector {selector} failed: {e}", print_msg=False)
+                continue
         
+        debug("Could not extract address with any selector", print_msg=False)
         return None
     
     async def _extract_coordinates(self, page: Page) -> Tuple[Optional[float], Optional[float]]:
