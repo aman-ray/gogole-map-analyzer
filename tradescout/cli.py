@@ -16,7 +16,7 @@ from .logging_config import setup_logging, info, debug, warning, error
 
 @click.command()
 @click.option('--center', required=True, help='Center location (lat,lng or address)')
-@click.option('--radius-km', default=10, help='Search radius in kilometers')
+@click.option('--radius-km', default=10, type=float, help='Search radius in kilometers')
 @click.option('--categories', default=None, help='Comma-separated categories')
 @click.option('--max-results', default=500, help='Maximum number of results')
 @click.option('--max-review-count', default=1, help='Maximum review count for inclusion (default: 1)')
