@@ -7,7 +7,9 @@ from typing import List, Optional, Tuple
 try:
     from playwright.async_api import async_playwright, Page, Browser, BrowserContext
 except ImportError:
-    print("Warning: Playwright not available. Install with: playwright install chromium")
+    # Import warning will be logged instead of printed
+    from .logging_config import warning
+    warning("Playwright not available. Install with: playwright install chromium", print_msg=True)
     # Define minimal stubs for testing
     class Page: pass
     class Browser: pass
@@ -17,9 +19,10 @@ from .models import Business, Tile, SearchConfig
 from .utils import (
     normalize_phone, normalize_website, clean_text, 
     extract_rating, extract_review_count, sleep_with_jitter,
-    exponential_backoff, haversine_distance
+    exponential_backoff, haversine_distance, calculate_zoom_level
 )
 from .cache import DedupeCache, ResultsCache
+from .logging_config import get_logger, debug, info, warning, error
 
 
 class GoogleMapsScraper:
@@ -30,9 +33,11 @@ class GoogleMapsScraper:
         self.browser: Optional[Browser] = None
         self.context: Optional[BrowserContext] = None
         self.start_time = time.time()
+        self.logger = get_logger('scraper')
     
     async def __aenter__(self):
         """Async context manager entry."""
+        debug("Initializing browser for scraping", print_msg=False)
         playwright = await async_playwright().start()
         
         # Launch browser
@@ -51,10 +56,12 @@ class GoogleMapsScraper:
             user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         )
         
+        debug(f"Browser initialized (headless: {self.config.headless})", print_msg=False)
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit."""
+        debug("Closing browser", print_msg=False)
         if self.context:
             await self.context.close()
         if self.browser:
@@ -64,13 +71,15 @@ class GoogleMapsScraper:
                                  dedupe_cache: DedupeCache, results_cache: ResultsCache) -> int:
         """Search a specific tile for a category."""
         query = f"{category} near {tile.center_lat},{tile.center_lng}"
+        debug(f"Starting search for '{query}'", print_msg=False)
         
         page = await self.context.new_page()
         found_count = 0
         
         try:
-            # Navigate to Google Maps
+            # Navigate to Google Maps - using original URL format for now
             maps_url = f"https://www.google.com/maps/search/{query.replace(' ', '+')}"
+            debug(f"Navigating to: {maps_url}", print_msg=False)
             await page.goto(maps_url, wait_until='networkidle')
             
             # Handle cookie consent if present
@@ -80,68 +89,94 @@ class GoogleMapsScraper:
             await page.wait_for_timeout(2000)
             
             # Scroll and collect listings
+            debug("Collecting listings from page", print_msg=False)
             listings = await self._scroll_and_collect_listings(page)
+            info(f"Found {len(listings)} listings for {category} in tile", print_msg=False)
             
             # Process each listing
-            for listing_selector in listings[:60]:  # Per-tile limit
+            for listing_data in listings[:60]:  # Per-tile limit
                 if self._should_stop():
+                    debug("Stopping due to time limit", print_msg=False)
                     break
                 
                 try:
                     business = await self._extract_business_data(
-                        page, listing_selector, category, tile
+                        page, listing_data, category, tile
                     )
                     
                     if business and self._is_in_radius(business):
                         if results_cache.add_business(business, dedupe_cache):
                             found_count += 1
                             print(f"Found: {business.place_name} ({business.category})")
+                            info(f"Added business: {business.place_name} - {business.phone}", print_msg=False)
+                        else:
+                            debug(f"Duplicate business filtered: {business.place_name}", print_msg=False)
                         
                         if results_cache.size() >= self.config.max_results:
+                            debug("Reached maximum results limit", print_msg=False)
                             break
                 
                 except Exception as e:
-                    print(f"Error processing listing: {e}")
+                    error_msg = f"Error processing listing: {e}"
+                    debug(error_msg, print_msg=False)
                     continue
                 
                 # Add jitter between listings
                 sleep_with_jitter(0.1, self.config.jitter_ms)
         
         except Exception as e:
-            print(f"Error searching {category} in tile: {e}")
+            error_msg = f"Error searching {category} in tile: {e}"
+            error(error_msg, print_msg=False)
         
         finally:
             await page.close()
         
+        debug(f"Search completed for {category} in tile: {found_count} businesses found", print_msg=False)
         return found_count
     
     async def _handle_consent_dialog(self, page: Page):
         """Handle cookie consent dialogs."""
-        consent_selectors = [
-            'button:has-text("Accept all")',
-            'button:has-text("I agree")',
-            'button:has-text("Accept")',
-            '[data-testid="accept-all"]',
-            '.VfPpkd-LgbsSe[jsname="V67aGc"]'  # Google's accept button
-        ]
+        # Check if we're on a consent page
+        if "consent.google.com" in page.url:
+            debug("Detected Google consent page", print_msg=False)
+            
+            consent_selectors = [
+                'button:has-text("Accept all")',
+                'button:has-text("I agree")',
+                'button:has-text("Accept")',
+                'form[action*="consent"] button:has-text("Accept all")',
+                '[data-testid="accept-all"]',
+                '.VfPpkd-LgbsSe[jsname="V67aGc"]'  # Google's accept button
+            ]
+            
+            for selector in consent_selectors:
+                try:
+                    consent_button = page.locator(selector).first
+                    if await consent_button.is_visible(timeout=3000):
+                        debug(f"Clicking consent button: {selector}", print_msg=False)
+                        await consent_button.click()
+                        await page.wait_for_timeout(2000)
+                        debug(f"Consent handled, new URL: {page.url}", print_msg=False)
+                        return True
+                except Exception as e:
+                    debug(f"Failed to click consent button {selector}: {e}", print_msg=False)
+                    continue
+            
+            debug("Could not handle consent dialog", print_msg=False)
+            return False
         
-        for selector in consent_selectors:
-            try:
-                consent_button = page.locator(selector).first
-                if await consent_button.is_visible(timeout=2000):
-                    await consent_button.click()
-                    await page.wait_for_timeout(1000)
-                    break
-            except:
-                continue
+        return True  # No consent page detected
     
     async def _scroll_and_collect_listings(self, page: Page) -> List[str]:
         """Scroll through the listings panel and collect all listing selectors."""
         listings = []
         
-        # Common selectors for listings
+        # Updated selectors for current Google Maps interface
         listing_selectors = [
-            '[data-result-index]',
+            'a[href*="/maps/place/"]',
+            '.hfpxzc',
+            '.lI9IFe',
+            '[data-result-index]',  # Keep as fallback
             '.Nv2PK',
             '[jsaction*="mouseover:pane"]',
             '.bfdHYd'
@@ -150,11 +185,28 @@ class GoogleMapsScraper:
         for selector in listing_selectors:
             try:
                 await page.wait_for_selector(selector, timeout=5000)
+                debug(f"Found listings with selector: {selector}", print_msg=False)
                 break
             except:
                 continue
         else:
-            print("Could not find listings panel")
+            warning("Could not find listings panel", print_msg=False)
+            return []
+        
+        # Use the first working selector for collecting listings
+        working_selector = None
+        for selector in listing_selectors:
+            try:
+                current_listings = await page.query_selector_all(selector)
+                if len(current_listings) > 0:
+                    working_selector = selector
+                    debug(f"Using selector: {selector} ({len(current_listings)} listings)", print_msg=False)
+                    break
+            except:
+                continue
+        
+        if not working_selector:
+            warning("No working listing selector found", print_msg=False)
             return []
         
         # Scroll and collect
@@ -163,8 +215,8 @@ class GoogleMapsScraper:
         max_scrolls = 10
         
         while scroll_attempts < max_scrolls:
-            # Get current listings
-            current_listings = await page.query_selector_all(listing_selectors[0])
+            # Get current listings using the working selector
+            current_listings = await page.query_selector_all(working_selector)
             current_count = len(current_listings)
             
             if current_count > last_count:
@@ -187,18 +239,28 @@ class GoogleMapsScraper:
             except:
                 break
         
-        # Return all found listings
-        final_listings = await page.query_selector_all(listing_selectors[0])
-        return [f'[data-result-index="{i}"]' for i in range(len(final_listings))]
+        # Return all found listings with the working selector
+        final_listings = await page.query_selector_all(working_selector)
+        debug(f"Final count: {len(final_listings)} listings", print_msg=False)
+        
+        # Return tuple of (selector, index) for each listing
+        return [(working_selector, i) for i in range(len(final_listings))]
     
-    async def _extract_business_data(self, page: Page, listing_selector: str, 
+    async def _extract_business_data(self, page: Page, listing_data: tuple, 
                                    category: str, tile: Tile) -> Optional[Business]:
         """Extract business data from a listing."""
         try:
-            listing = page.locator(listing_selector).first
+            selector, index = listing_data
+            listings = await page.query_selector_all(selector)
+            
+            if index >= len(listings):
+                debug(f"Listing index {index} out of range", print_msg=False)
+                return None
+            
+            listing_element = listings[index]
             
             # Click on the listing to get details
-            await listing.click()
+            await listing_element.click()
             await page.wait_for_timeout(1500)
             
             # Extract basic info
@@ -247,7 +309,7 @@ class GoogleMapsScraper:
                 return business
         
         except Exception as e:
-            print(f"Error extracting business data: {e}")
+            error(f"Error extracting business data: {e}", print_msg=False)
         
         return None
     

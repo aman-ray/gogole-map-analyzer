@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from typing import Set, Optional
 from .models import Business
+from .logging_config import get_logger, debug, warning
 
 
 class DedupeCache:
@@ -15,11 +16,13 @@ class DedupeCache:
         self.cache_dir.mkdir(exist_ok=True)
         self.cache_file = self.cache_dir / "seen.jsonl"
         self._seen_keys: Set[str] = set()
+        self.logger = get_logger('cache')
         self._load_cache()
     
     def _load_cache(self):
         """Load existing cache from disk."""
         if not self.cache_file.exists():
+            debug("No existing cache file found", print_msg=False)
             return
         
         try:
@@ -29,8 +32,9 @@ class DedupeCache:
                         data = json.loads(line)
                         if 'dedupe_key' in data:
                             self._seen_keys.add(data['dedupe_key'])
+            debug(f"Loaded {len(self._seen_keys)} entries from cache", print_msg=False)
         except Exception as e:
-            print(f"Warning: Could not load cache: {e}")
+            warning(f"Could not load cache: {e}", print_msg=True)
     
     def is_seen(self, business: Business) -> bool:
         """Check if business has been seen before."""
@@ -54,7 +58,7 @@ class DedupeCache:
                 }
                 f.write(json.dumps(cache_entry) + '\n')
         except Exception as e:
-            print(f"Warning: Could not write to cache: {e}")
+            warning(f"Could not write to cache: {e}", print_msg=True)
     
     def clear(self):
         """Clear the cache."""
@@ -70,14 +74,16 @@ class DedupeCache:
 class ResultsCache:
     """Cache for storing search results."""
     
-    def __init__(self, cache_dir: str = ".cache"):
+    def __init__(self, cache_dir: str = ".cache", config=None):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(exist_ok=True)
         self.results: list[Business] = []
+        self.config = config
     
     def add_business(self, business: Business, dedupe_cache: DedupeCache) -> bool:
         """Add business to results if not duplicate."""
-        if not business.meets_criteria():
+        max_review_count = self.config.max_review_count if self.config else 1
+        if not business.meets_criteria(max_review_count):
             return False
         
         if dedupe_cache.is_seen(business):
@@ -111,7 +117,7 @@ class ResultsCache:
                 for business in self.results:
                     f.write(json.dumps(business.to_dict()) + '\n')
         except Exception as e:
-            print(f"Warning: Could not save checkpoint: {e}")
+            warning(f"Could not save checkpoint: {e}", print_msg=True)
     
     def load_checkpoint(self, filename: Optional[str] = None) -> int:
         """Load results from a checkpoint file."""
@@ -134,6 +140,6 @@ class ResultsCache:
                         self.results.append(business)
                         loaded_count += 1
         except Exception as e:
-            print(f"Warning: Could not load checkpoint: {e}")
+            warning(f"Could not load checkpoint: {e}", print_msg=True)
         
         return loaded_count

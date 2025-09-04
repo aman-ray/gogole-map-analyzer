@@ -55,14 +55,14 @@ class Business:
         
         return hashlib.md5(key_string.encode('utf-8')).hexdigest()
 
-    def meets_criteria(self) -> bool:
+    def meets_criteria(self, max_review_count: int = 1) -> bool:
         """Check if business meets inclusion criteria."""
         # Must have phone
         if not self.phone or not self.phone.strip():
             return False
         
-        # Review count <= 1
-        if self.review_count > 1:
+        # Review count <= max_review_count
+        if self.review_count > max_review_count:
             return False
         
         # Website must be empty/absent
@@ -84,12 +84,14 @@ class SearchConfig:
     radius_km: float = 10
     categories: list = None
     max_results: int = 500
+    max_review_count: int = 1
     max_runtime_min: int = 20
     concurrency: int = 2
     headless: bool = True
     output_prefix: str = "out"
     keep_trace: bool = False
     tile_size_km: float = 2.5
+    zoom_level: Optional[int] = None
     retry: int = 3
     jitter_ms: int = 350
 

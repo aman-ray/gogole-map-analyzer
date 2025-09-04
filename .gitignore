@@ -39,6 +39,10 @@ venv.bak/
 out/
 data/
 
+# Logs
+logs/
+*.log
+
 # Playwright
 test-results/
 playwright-report/

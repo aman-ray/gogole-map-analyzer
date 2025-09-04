@@ -107,9 +107,13 @@ def main():
     print("📊 Creating sample business data...")
     sample_businesses = create_sample_data()
     
-    # Filter businesses that meet criteria
+    # Filter businesses that meet criteria (using default max_review_count of 1)
     valid_businesses = [b for b in sample_businesses if b.meets_criteria()]
-    print(f"✅ Found {len(valid_businesses)} businesses meeting criteria")
+    print(f"✅ Found {len(valid_businesses)} businesses meeting criteria (≤1 review)")
+    
+    # Show what happens with different review count limits
+    valid_businesses_10 = [b for b in sample_businesses if b.meets_criteria(10)]
+    print(f"📈 Found {len(valid_businesses_10)} businesses with ≤10 reviews")
     print()
     
     # Print summary
