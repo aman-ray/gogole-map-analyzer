@@ -78,7 +78,7 @@ def demonstrate_logging_with_mock_search():
     # Initialize caches
     cache_dir = Path('.cache')
     dedupe_cache = DedupeCache(cache_dir)
-    results_cache = ResultsCache(cache_dir)
+    results_cache = ResultsCache(cache_dir)  # Use default behavior for verification
     info(f"Cache initialized with {dedupe_cache.size()} existing entries")
     
     # Simulate some warning scenarios

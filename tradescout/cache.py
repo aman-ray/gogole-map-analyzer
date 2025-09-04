@@ -74,14 +74,16 @@ class DedupeCache:
 class ResultsCache:
     """Cache for storing search results."""
     
-    def __init__(self, cache_dir: str = ".cache"):
+    def __init__(self, cache_dir: str = ".cache", config=None):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(exist_ok=True)
         self.results: list[Business] = []
+        self.config = config
     
     def add_business(self, business: Business, dedupe_cache: DedupeCache) -> bool:
         """Add business to results if not duplicate."""
-        if not business.meets_criteria():
+        max_review_count = self.config.max_review_count if self.config else 1
+        if not business.meets_criteria(max_review_count):
             return False
         
         if dedupe_cache.is_seen(business):

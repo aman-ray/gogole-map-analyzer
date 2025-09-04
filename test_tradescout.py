@@ -81,7 +81,7 @@ def test_cache():
     import tempfile
     with tempfile.TemporaryDirectory() as tmpdir:
         dedupe_cache = DedupeCache(tmpdir)
-        results_cache = ResultsCache(tmpdir)
+        results_cache = ResultsCache(tmpdir)  # Use default behavior for tests
         
         # Create test business
         business = Business(

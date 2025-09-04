@@ -39,7 +39,7 @@ def test_logging_integration():
         
         # Test cache initialization
         dedupe_cache = DedupeCache(cache_dir)
-        results_cache = ResultsCache(cache_dir)
+        results_cache = ResultsCache(cache_dir)  # Use default behavior for integration tests
         info(f"Cache initialized with {dedupe_cache.size()} existing entries")
         
         # Test tile generation

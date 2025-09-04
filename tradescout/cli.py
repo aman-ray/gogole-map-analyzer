@@ -19,18 +19,20 @@ from .logging_config import setup_logging, info, debug, warning, error
 @click.option('--radius-km', default=10, help='Search radius in kilometers')
 @click.option('--categories', default=None, help='Comma-separated categories')
 @click.option('--max-results', default=500, help='Maximum number of results')
+@click.option('--max-review-count', default=1, help='Maximum review count for inclusion (default: 1)')
 @click.option('--max-runtime-min', default=20, help='Maximum runtime in minutes')
 @click.option('--concurrency', default=2, help='Number of concurrent browsers')
 @click.option('--headless/--no-headless', default=True, help='Run browser in headless mode')
 @click.option('--output', default='out', help='Output file prefix')
 @click.option('--keep-trace/--no-keep-trace', default=False, help='Keep browser traces')
 @click.option('--tile-size-km', default=2.5, help='Tile size in kilometers')
+@click.option('--zoom-level', default=None, type=int, help='Map zoom level (8-18, higher = more zoomed in)')
 @click.option('--retry', default=3, help='Number of retries')
 @click.option('--jitter-ms', default=350, help='Random jitter in milliseconds')
 @click.option('--log-level', default='INFO', help='Logging level (DEBUG, INFO, WARNING, ERROR)')
 @click.option('--log-dir', default='logs', help='Directory for log files')
-def main(center, radius_km, categories, max_results, max_runtime_min, 
-         concurrency, headless, output, keep_trace, tile_size_km, retry, jitter_ms,
+def main(center, radius_km, categories, max_results, max_review_count, max_runtime_min, 
+         concurrency, headless, output, keep_trace, tile_size_km, zoom_level, retry, jitter_ms,
          log_level, log_dir):
     """Google Maps Tradesmen Finder - Find local tradespeople with minimal reviews."""
     
@@ -67,20 +69,31 @@ def main(center, radius_km, categories, max_results, max_runtime_min,
         radius_km=radius_km,
         categories=category_list,
         max_results=max_results,
+        max_review_count=max_review_count,
         max_runtime_min=max_runtime_min,
         concurrency=concurrency,
         headless=headless,
         output_prefix=output,
         keep_trace=keep_trace,
         tile_size_km=tile_size_km,
+        zoom_level=zoom_level,
         retry=retry,
         jitter_ms=jitter_ms
     )
     
+    # Import here to avoid circular imports
+    from .utils import calculate_zoom_level
+    
+    # Calculate effective zoom level
+    effective_zoom = zoom_level or calculate_zoom_level(tile_size_km)
+    
     info(f"Configuration created - radius: {radius_km}km, max_results: {max_results}, concurrency: {concurrency}", print_msg=False)
     
     print(f"🎯 Search radius: {radius_km} km")
+    print(f"📐 Tile size: {tile_size_km} km")
+    print(f"🔍 Map zoom level: {effective_zoom} {'(auto-calculated)' if zoom_level is None else '(user-specified)'}")
     print(f"📂 Categories: {', '.join(config.categories)}")
+    print(f"⭐ Max review count: {max_review_count}")
     print(f"🎚️  Max results: {max_results}")
     print(f"⏱️  Max runtime: {max_runtime_min} minutes")
     print(f"🌐 Headless mode: {headless}")
@@ -98,7 +111,7 @@ async def run_search(config: SearchConfig):
     # Initialize caches
     cache_dir = Path('.cache')
     dedupe_cache = DedupeCache(cache_dir)
-    results_cache = ResultsCache(cache_dir)
+    results_cache = ResultsCache(cache_dir, config)
     
     cached_count = dedupe_cache.size()
     print(f"💾 Cache initialized with {cached_count} seen businesses")

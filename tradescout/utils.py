@@ -1,5 +1,6 @@
 """Utility functions for tradescout."""
 
+import logging
 import re
 import math
 import time
@@ -75,6 +76,7 @@ def geocode_address(address: str) -> Optional[Tuple[float, float]]:
     try:
         geolocator = Nominatim(user_agent="tradescout")
         location = geolocator.geocode(address)
+        logging.info(f"Geocoding {address}: {location}")
         
         if location:
             return (location.latitude, location.longitude)
@@ -182,3 +184,32 @@ def extract_review_count(review_text: str) -> int:
             pass
     
     return 0
+
+
+def calculate_zoom_level(tile_size_km: float) -> int:
+    """Calculate appropriate Google Maps zoom level based on tile size.
+    
+    Google Maps zoom levels:
+    - 1: World view
+    - 5: Continent view
+    - 10: City view
+    - 15: Streets view
+    - 20: Buildings view
+    
+    For tile-based searching, we want enough detail to see individual businesses
+    but not so zoomed in that we miss coverage.
+    """
+    # Mapping tile size to zoom level
+    # Smaller tiles need higher zoom (more detail)
+    if tile_size_km <= 0.5:
+        return 16  # Very detailed view for very small tiles
+    elif tile_size_km <= 1.0:
+        return 15  # Street level detail
+    elif tile_size_km <= 2.0:
+        return 14  # Neighborhood level
+    elif tile_size_km <= 3.0:
+        return 13  # District level
+    elif tile_size_km <= 5.0:
+        return 12  # City area level
+    else:
+        return 11  # Wide area view for large tiles

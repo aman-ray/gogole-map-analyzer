@@ -19,7 +19,7 @@ from .models import Business, Tile, SearchConfig
 from .utils import (
     normalize_phone, normalize_website, clean_text, 
     extract_rating, extract_review_count, sleep_with_jitter,
-    exponential_backoff, haversine_distance
+    exponential_backoff, haversine_distance, calculate_zoom_level
 )
 from .cache import DedupeCache, ResultsCache
 from .logging_config import get_logger, debug, info, warning, error
@@ -77,9 +77,14 @@ class GoogleMapsScraper:
         found_count = 0
         
         try:
-            # Navigate to Google Maps
-            maps_url = f"https://www.google.com/maps/search/{query.replace(' ', '+')}"
-            debug(f"Navigating to: {maps_url}", print_msg=False)
+            # Calculate zoom level - use user-specified or calculate from tile size
+            zoom = self.config.zoom_level or calculate_zoom_level(self.config.tile_size_km)
+            
+            # Navigate to Google Maps with zoom control
+            # Use the @lat,lng,zoom format for better zoom control
+            query_encoded = query.replace(' ', '+')
+            maps_url = f"https://www.google.com/maps/@{tile.center_lat},{tile.center_lng},{zoom}z/search/{query_encoded}"
+            debug(f"Navigating to: {maps_url} (zoom level: {zoom})", print_msg=False)
             await page.goto(maps_url, wait_until='networkidle')
             
             # Handle cookie consent if present
