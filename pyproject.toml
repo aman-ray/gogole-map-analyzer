@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tradescout"
+version = "0.1.0"
+description = "Google Maps tradesmen finder CLI tool"
+authors = [{name = "Google Map Analyzer", email = "example@example.com"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "playwright>=1.40.0",
+    "click>=8.1.0",
+    "pandas>=2.0.0",
+    "pyarrow>=14.0.0",
+    "phonenumbers>=8.13.0",
+    "geopy>=2.4.0",
+    "tqdm>=4.66.0",
+]
+
+[project.scripts]
+tradescout = "tradescout.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/aman-ray/gogole-map-analyzer"
+Repository = "https://github.com/aman-ray/gogole-map-analyzer"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tradescout*"]
