@@ -63,3 +63,9 @@ Thumbs.db
 *.tmp
 *.temp
 /tmp/
+
+# Test artifacts and screenshots
+test_*.png
+improved_extraction_test.png
+debug_*.png
+extraction_error_*.png
