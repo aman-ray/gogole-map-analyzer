@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List
 import pandas as pd
 from .models import Business
+from .logging_config import get_logger, debug, info, warning, error
 
 
 class DataExporter:
@@ -15,14 +16,17 @@ class DataExporter:
         self.output_prefix = output_prefix
         self.output_dir = Path(output_prefix).parent
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.logger = get_logger('exporter')
     
     def export_all(self, businesses: List[Business]):
         """Export to all supported formats."""
         if not businesses:
             print("No businesses to export.")
+            warning("Export attempted with empty business list", print_msg=False)
             return
         
         print(f"Exporting {len(businesses)} businesses...")
+        info(f"Starting export of {len(businesses)} businesses to {self.output_prefix}", print_msg=False)
         
         self.export_csv(businesses)
         self.export_parquet(businesses)
@@ -30,6 +34,7 @@ class DataExporter:
         self.export_sqlite(businesses)
         
         print("Export completed.")
+        info("All exports completed successfully", print_msg=False)
     
     def export_csv(self, businesses: List[Business]):
         """Export to CSV format."""
@@ -38,8 +43,11 @@ class DataExporter:
             csv_path = f"{self.output_prefix}.csv"
             df.to_csv(csv_path, index=False, encoding='utf-8')
             print(f"CSV exported to: {csv_path}")
+            debug(f"CSV export successful: {csv_path} ({len(businesses)} records)", print_msg=False)
         except Exception as e:
-            print(f"Error exporting CSV: {e}")
+            error_msg = f"Error exporting CSV: {e}"
+            print(error_msg)
+            error(error_msg, print_msg=False)
     
     def export_parquet(self, businesses: List[Business]):
         """Export to Parquet format."""
@@ -48,8 +56,11 @@ class DataExporter:
             parquet_path = f"{self.output_prefix}.parquet"
             df.to_parquet(parquet_path, index=False)
             print(f"Parquet exported to: {parquet_path}")
+            debug(f"Parquet export successful: {parquet_path} ({len(businesses)} records)", print_msg=False)
         except Exception as e:
-            print(f"Error exporting Parquet: {e}")
+            error_msg = f"Error exporting Parquet: {e}"
+            print(error_msg)
+            error(error_msg, print_msg=False)
     
     def export_jsonl(self, businesses: List[Business]):
         """Export to JSONL format."""
@@ -59,8 +70,11 @@ class DataExporter:
                 for business in businesses:
                     f.write(json.dumps(business.to_dict()) + '\n')
             print(f"JSONL exported to: {jsonl_path}")
+            debug(f"JSONL export successful: {jsonl_path} ({len(businesses)} records)", print_msg=False)
         except Exception as e:
-            print(f"Error exporting JSONL: {e}")
+            error_msg = f"Error exporting JSONL: {e}"
+            print(error_msg)
+            error(error_msg, print_msg=False)
     
     def export_sqlite(self, businesses: List[Business]):
         """Export to SQLite format."""
@@ -77,8 +91,11 @@ class DataExporter:
                 conn.commit()
             
             print(f"SQLite exported to: {sqlite_path}")
+            debug(f"SQLite export successful: {sqlite_path} ({len(businesses)} records)", print_msg=False)
         except Exception as e:
-            print(f"Error exporting SQLite: {e}")
+            error_msg = f"Error exporting SQLite: {e}"
+            print(error_msg)
+            error(error_msg, print_msg=False)
     
     def _to_dataframe(self, businesses: List[Business]) -> pd.DataFrame:
         """Convert businesses to pandas DataFrame."""

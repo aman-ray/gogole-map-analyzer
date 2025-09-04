@@ -7,7 +7,9 @@ from typing import List, Optional, Tuple
 try:
     from playwright.async_api import async_playwright, Page, Browser, BrowserContext
 except ImportError:
-    print("Warning: Playwright not available. Install with: playwright install chromium")
+    # Import warning will be logged instead of printed
+    from .logging_config import warning
+    warning("Playwright not available. Install with: playwright install chromium", print_msg=True)
     # Define minimal stubs for testing
     class Page: pass
     class Browser: pass
@@ -20,6 +22,7 @@ from .utils import (
     exponential_backoff, haversine_distance
 )
 from .cache import DedupeCache, ResultsCache
+from .logging_config import get_logger, debug, info, warning, error
 
 
 class GoogleMapsScraper:
@@ -30,9 +33,11 @@ class GoogleMapsScraper:
         self.browser: Optional[Browser] = None
         self.context: Optional[BrowserContext] = None
         self.start_time = time.time()
+        self.logger = get_logger('scraper')
     
     async def __aenter__(self):
         """Async context manager entry."""
+        debug("Initializing browser for scraping", print_msg=False)
         playwright = await async_playwright().start()
         
         # Launch browser
@@ -51,10 +56,12 @@ class GoogleMapsScraper:
             user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         )
         
+        debug(f"Browser initialized (headless: {self.config.headless})", print_msg=False)
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit."""
+        debug("Closing browser", print_msg=False)
         if self.context:
             await self.context.close()
         if self.browser:
@@ -64,6 +71,7 @@ class GoogleMapsScraper:
                                  dedupe_cache: DedupeCache, results_cache: ResultsCache) -> int:
         """Search a specific tile for a category."""
         query = f"{category} near {tile.center_lat},{tile.center_lng}"
+        debug(f"Starting search for '{query}'", print_msg=False)
         
         page = await self.context.new_page()
         found_count = 0
@@ -71,6 +79,7 @@ class GoogleMapsScraper:
         try:
             # Navigate to Google Maps
             maps_url = f"https://www.google.com/maps/search/{query.replace(' ', '+')}"
+            debug(f"Navigating to: {maps_url}", print_msg=False)
             await page.goto(maps_url, wait_until='networkidle')
             
             # Handle cookie consent if present
@@ -80,11 +89,14 @@ class GoogleMapsScraper:
             await page.wait_for_timeout(2000)
             
             # Scroll and collect listings
+            debug("Collecting listings from page", print_msg=False)
             listings = await self._scroll_and_collect_listings(page)
+            info(f"Found {len(listings)} listings for {category} in tile", print_msg=False)
             
             # Process each listing
             for listing_selector in listings[:60]:  # Per-tile limit
                 if self._should_stop():
+                    debug("Stopping due to time limit", print_msg=False)
                     break
                 
                 try:
@@ -96,23 +108,30 @@ class GoogleMapsScraper:
                         if results_cache.add_business(business, dedupe_cache):
                             found_count += 1
                             print(f"Found: {business.place_name} ({business.category})")
+                            info(f"Added business: {business.place_name} - {business.phone}", print_msg=False)
+                        else:
+                            debug(f"Duplicate business filtered: {business.place_name}", print_msg=False)
                         
                         if results_cache.size() >= self.config.max_results:
+                            debug("Reached maximum results limit", print_msg=False)
                             break
                 
                 except Exception as e:
-                    print(f"Error processing listing: {e}")
+                    error_msg = f"Error processing listing: {e}"
+                    debug(error_msg, print_msg=False)
                     continue
                 
                 # Add jitter between listings
                 sleep_with_jitter(0.1, self.config.jitter_ms)
         
         except Exception as e:
-            print(f"Error searching {category} in tile: {e}")
+            error_msg = f"Error searching {category} in tile: {e}"
+            error(error_msg, print_msg=False)
         
         finally:
             await page.close()
         
+        debug(f"Search completed for {category} in tile: {found_count} businesses found", print_msg=False)
         return found_count
     
     async def _handle_consent_dialog(self, page: Page):
@@ -131,6 +150,7 @@ class GoogleMapsScraper:
                 if await consent_button.is_visible(timeout=2000):
                     await consent_button.click()
                     await page.wait_for_timeout(1000)
+                    debug("Handled consent dialog", print_msg=False)
                     break
             except:
                 continue
@@ -154,7 +174,7 @@ class GoogleMapsScraper:
             except:
                 continue
         else:
-            print("Could not find listings panel")
+            warning("Could not find listings panel", print_msg=False)
             return []
         
         # Scroll and collect
@@ -247,7 +267,7 @@ class GoogleMapsScraper:
                 return business
         
         except Exception as e:
-            print(f"Error extracting business data: {e}")
+            error(f"Error extracting business data: {e}", print_msg=False)
         
         return None
     
