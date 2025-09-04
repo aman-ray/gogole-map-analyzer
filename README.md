@@ -22,9 +22,11 @@ cd gogole-map-analyzer
 # Install the package
 pip install -e .
 
-# Install Playwright browsers
+# Install Playwright browsers (REQUIRED for scraping)
 playwright install chromium
 ```
+
+**⚠️ Important**: You must run `playwright install chromium` after installation, otherwise you'll get 0 results.
 
 ## Usage
 
@@ -67,6 +69,8 @@ tradescout --center "Tallaght, Dublin" --radius-km 5 \
 | `--tile-size-km` | 2.5 | Geographic tile size |
 | `--retry` | 3 | Number of retries per search |
 | `--jitter-ms` | 350 | Random delay between requests |
+| `--log-level` | INFO | Logging level (DEBUG, INFO, WARNING, ERROR) |
+| `--log-dir` | logs | Directory for log files |
 
 ## Default Categories
 
@@ -123,6 +127,17 @@ The tool exports to four formats:
 
 ## Troubleshooting
 
+### "0 Results" Issue
+
+**Problem**: Always getting 0 results from searches.
+
+**Cause**: Missing Playwright browser installation.
+
+**Solution**:
+```bash
+playwright install chromium
+```
+
 ### Common Issues
 
 1. **"No listings found"** - Try reducing tile size or checking the location
@@ -132,7 +147,16 @@ The tool exports to four formats:
 
 ### Debug Mode
 
-Run with `--no-headless --keep-trace` to see browser actions and debug issues.
+Run with debug logging to diagnose issues:
+```bash
+tradescout --center "Dublin, Ireland" --radius-km 5 --log-level DEBUG --no-headless
+```
+
+### Logs
+
+- Log files are created in `logs/` directory with date format: `tradescout_YYYY-MM-DD.log`
+- Use `tail -f logs/tradescout_$(date +%Y-%m-%d).log` to monitor real-time logging
+- Different log levels: DEBUG, INFO, WARNING, ERROR
 
 ## Examples
 
